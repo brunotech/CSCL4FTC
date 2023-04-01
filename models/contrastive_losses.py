@@ -38,7 +38,7 @@ class SupConLoss(nn.Module):
                              'at least 3 dimensions are required')
         if len(features.shape) > 3:
             features = features.view(features.shape[0], features.shape[1], -1)
-        
+
         batch_size = features.shape[0]
         if labels is not None and mask is not None:
             raise ValueError('Cannot define both `labels` and `mask`')
@@ -61,15 +61,15 @@ class SupConLoss(nn.Module):
             anchor_feature = contrast_feature # shape [bsz*2, feature_dim]
             anchor_count = contrast_count # anchor_count=2
         else:
-            raise ValueError('Unknown mode: {}'.format(self.contrast_mode))
-        
+            raise ValueError(f'Unknown mode: {self.contrast_mode}')
+
         # compute logits: each element (logits_{i, j}) in logit correspond to (feat_i * feat_j) / temperature
         anchor_dot_contrast = torch.div(
             torch.matmul(anchor_feature, contrast_feature.T),
             self.temperature) # shape [bsz*2, bsz*2] if contrast_mode is 'all'; shape [bsz, bsz*2] if contrast_mode is 'one'
 
         # tile mask: in supcon loss, the mask is label, so need to repeat vertically and horizontally
-        mask = mask.repeat(anchor_count, contrast_count) 
+        mask = mask.repeat(anchor_count, contrast_count)
         # mask-out self-contrast cases (only the diagonal element is zero, otherwise 1)
         logits_mask = torch.scatter(
             torch.ones_like(mask),
@@ -78,12 +78,12 @@ class SupConLoss(nn.Module):
             0
         ) # shape [bsz*2, bsz*2] if contrast_mode is 'all'; shape [bsz, bsz*2] if contrast_mode is 'one'
         mask = mask * logits_mask # shape same as logits_mask
-        
+
         # for numerical stability and self-mask-out
         anchor_dot_contrast = anchor_dot_contrast * logits_mask
         logits_max, _ = torch.max(anchor_dot_contrast, dim=1, keepdim=True) # shape [bsz*2, 1] if all; shape [bsz, 1] if one 
         logits = anchor_dot_contrast - logits_max.detach() # shape [bsz*2, bsz*2] if contrast_mode is 'all'; shape [bsz, bsz*2] if contrast_mode is 'one'
-        
+
         # compute log_prob: shape [bsz*2, bsz*2] if contrast_mode is 'all'; shape [bsz, bsz*2] if contrast_mode is 'one'
         exp_logits = torch.exp(logits) * logits_mask
         log_prob = logits - torch.log(exp_logits.sum(1, keepdim=True))
@@ -94,7 +94,7 @@ class SupConLoss(nn.Module):
         # loss
         loss = - (self.temperature / self.base_temperature) * mean_log_prob_pos
         loss = loss.view(anchor_count, batch_size).mean()
-        
+
         # assert loss is not nan or inf
         assert not torch.any(torch.isnan(loss))
         assert not torch.any(torch.isinf(loss))
@@ -140,12 +140,12 @@ class SimpleContrastiveLossV2:
 
         batch_size = features.shape[0]
         contrast_feature = torch.cat(torch.unbind(features, dim=1), dim=0)
-        if contrastive_mode == 'one':
-            anchor_feature = features[:, 0] # shape [bsz, feature_dim]
-            anchor_count = 1
-        elif contrastive_mode == 'all':
+        if contrastive_mode == 'all':
             anchor_feature = contrast_feature # shape [bsz*2, feature_dim]
             anchor_count = contrast_count # anchor_count=2
+        elif contrastive_mode == 'one':
+            anchor_feature = features[:, 0] # shape [bsz, feature_dim]
+            anchor_count = 1
         else:
             raise NotImplementedError
         contrast_feature = torch.cat(torch.unbind(features, dim=1), dim=0)
@@ -201,15 +201,15 @@ class ConSupConLoss(nn.Module):
                              'at least 3 dimensions are required')
         if len(features.shape) > 3:
             features = features.view(features.shape[0], features.shape[1], -1)
-        
+
         batch_size = features.shape[0]
         # mask: contrastive mask for positive examples shape [bsz, bsz]
         # torch.eye(batch_size) as the initial input value
         mask = torch.eye(batch_size, dtype=torch.float32).to(device)
-        
+
         if (labels is None) or (protected_group_labels is None):
             raise ValueError('`labels` and `mask` must be specified')
-        
+
         # create label mask
         labels = labels.contiguous().view(-1, 1) # [bsz, 1]
         label_mask = torch.eq(labels, labels.T).float().to(device) # shape [bsz, bsz]
@@ -231,16 +231,16 @@ class ConSupConLoss(nn.Module):
             anchor_feature = contrast_feature # shape [bsz*2, feature_dim]
             anchor_count = contrast_count # anchor_count=2
         else:
-            raise ValueError('Unknown mode: {}'.format(self.contrast_mode))
-        
+            raise ValueError(f'Unknown mode: {self.contrast_mode}')
+
         # compute logits: each element (logits_{i, j}) in logit correspond to (feat_i * feat_j) / temperature
         anchor_dot_contrast = torch.div(
             torch.matmul(anchor_feature, contrast_feature.T),
             self.temperature) # shape [bsz*2, bsz*2] if contrast_mode is 'all'; shape [bsz, bsz*2] if contrast_mode is 'one'
 
         # tile mask: in supcon loss, the mask is label, so need to repeat vertically and horizontally
-        mask = mask.repeat(anchor_count, contrast_count) 
-        negative_mask = negative_mask.repeat(anchor_count, contrast_count) 
+        mask = mask.repeat(anchor_count, contrast_count)
+        negative_mask = negative_mask.repeat(anchor_count, contrast_count)
         # mask-out self-contrast cases (only the diagonal element is zero, otherwise 1)
         logits_mask = torch.scatter(
             torch.ones_like(mask),
@@ -249,12 +249,12 @@ class ConSupConLoss(nn.Module):
             0
         ) # shape [bsz*2, bsz*2] if contrast_mode is 'all'; shape [bsz, bsz*2] if contrast_mode is 'one'
         mask = mask * logits_mask # shape same as logits_mask
-        
+
         # for numerical stability, self-mask-out, and mask out the irrelevant examples 
         anchor_dot_contrast = anchor_dot_contrast * logits_mask * negative_mask
         logits_max, _ = torch.max(anchor_dot_contrast, dim=1, keepdim=True) # shape [bsz*2, 1] if all; shape [bsz, 1] if one 
         logits = anchor_dot_contrast - logits_max.detach() # shape [bsz*2, bsz*2] if contrast_mode is 'all'; shape [bsz, bsz*2] if contrast_mode is 'one'
-        
+
         # compute log_prob: shape [bsz*2, bsz*2] if contrast_mode is 'all'; shape [bsz, bsz*2] if contrast_mode is 'one'
         # exp_logits is the denominator
         exp_logits = torch.exp(logits) * logits_mask * negative_mask
@@ -266,8 +266,8 @@ class ConSupConLoss(nn.Module):
         # loss
         loss = - (self.temperature / self.base_temperature) * mean_log_prob_pos
         loss = loss.view(anchor_count, batch_size).mean()
-        
+
         assert not torch.any(torch.isnan(loss))
         assert not torch.any(torch.isinf(loss))
-        
+
         return loss

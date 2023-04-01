@@ -27,14 +27,14 @@ def train_epoch(model, discriminators, iterator, optimizer, criterion, device, a
 
     # activate train mode
     model.train()
-    
+
     for discriminator in discriminators:
         discriminator.train()
-        
+
     # activate gradient reversal layer
     for discriminator in discriminators:
         discriminator.GR = True
-    
+
     running_main_loss_val, running_adv_loss_val = 0.0, 0.0
     running_total_loss_val = 0.0
     for step, batch in enumerate(iterator):
@@ -57,7 +57,7 @@ def train_epoch(model, discriminators, iterator, optimizer, criterion, device, a
             else:
                 adv_predictions, _ = discriminator(hs)
             adv_loss += criterion(adv_predictions, protected_group_labels) / len(discriminators)
-        
+
         # compute total loss and gradient accumulation 
         total_loss = main_loss + adv_loss
         total_loss = total_loss / args.gradient_accumulation_steps
@@ -69,10 +69,10 @@ def train_epoch(model, discriminators, iterator, optimizer, criterion, device, a
             optimizer.zero_grad()
             progress_bar.update(1)
             completed_steps += 1
-            
+
         if completed_steps >= args.max_train_steps:
             break
-    
+
         # accumulate value for logging
         running_main_loss_val += main_loss.item()
         running_adv_loss_val += adv_loss.item()
@@ -81,11 +81,11 @@ def train_epoch(model, discriminators, iterator, optimizer, criterion, device, a
         # logging every N steps
         if completed_steps % args.logging_steps == 0:
 
-            log_info: Dict[str, float] = {}
-            log_info['main_loss'] = round(running_main_loss_val / step, 6)
-            log_info['adv_loss'] = round(running_adv_loss_val / step, 6)
-            log_info['total_loss'] = round(running_total_loss_val / step, 6)
-        
+            log_info: Dict[str, float] = {
+                'main_loss': round(running_main_loss_val / step, 6),
+                'adv_loss': round(running_adv_loss_val / step, 6),
+                'total_loss': round(running_total_loss_val / step, 6),
+            }
             # log it
             logger.info(f"logging training loss: {log_info}")
 
@@ -170,7 +170,7 @@ def adv_train_eval(model, discriminators, train_iterator, valid_iterator, adv_op
             device=device, 
             args=args,
         )
-        
+
         if eval_loss_val <= best_eval_loss_val:
             best_eval_loss_val = eval_loss_val
             best_adv_epoch = k
@@ -178,12 +178,11 @@ def adv_train_eval(model, discriminators, train_iterator, valid_iterator, adv_op
             # save discriminators
             for j in range(len(discriminators)):
                 torch.save(discriminators[j].state_dict(), os.path.join(args.output_dir, "tmp", f"discriminator_{j}"))
-        else:
-            if best_adv_epoch + 3 <= k:
-                logger.info(f"early stopping at adv epoch {k}")
-                break
+        elif best_adv_epoch + 3 <= k:
+            logger.info(f"early stopping at adv epoch {k}")
+            break
 
-    logger.info(f"Loading the best discriminators after training")
+    logger.info("Loading the best discriminators after training")
     for j in range(len(discriminators)):
         discriminators[j].load_state_dict(torch.load(os.path.join(args.output_dir, "tmp", f"discriminator_{j}")))
 
@@ -221,7 +220,7 @@ def adv_train_epoch(adv_epoch, model, discriminators, iterator, adv_optimizers, 
                 adv_predictions, adv_hs = discriminator(hs)
 
             adv_loss = criterion(adv_predictions, protected_group_labels)
-        
+
             # encrouge orthogonality between adv_hs for different discriminators
             difference_loss = torch.tensor(0.0).to(device)
             for j, discriminator_j in enumerate(discriminators):
@@ -232,7 +231,7 @@ def adv_train_epoch(adv_epoch, model, discriminators, iterator, adv_optimizers, 
                         _, adv_hs_j = discriminator_j(hs)
                     # calculate diff_loss (exclude the current model)
                     difference_loss += args.lambda_diff * args.diff_loss(adv_hs, adv_hs_j)
-            
+
             total_loss = adv_loss + difference_loss
             total_loss.backward()
             adv_optimizer.step()
@@ -242,13 +241,11 @@ def adv_train_epoch(adv_epoch, model, discriminators, iterator, adv_optimizers, 
             adv_loss_val += adv_loss.item()
             diff_loss_val += difference_loss.item()
 
-    loss_info = {
-        'total_loss': total_loss_val / ( len(iterator) * len(discriminators) ),
-        'adv_loss': adv_loss_val / ( len(iterator) * len(discriminators) ),
-        'diff_loss': diff_loss_val / ( len(iterator) * len(discriminators) ),
+    return {
+        'total_loss': total_loss_val / (len(iterator) * len(discriminators)),
+        'adv_loss': adv_loss_val / (len(iterator) * len(discriminators)),
+        'diff_loss': diff_loss_val / (len(iterator) * len(discriminators)),
     }
-
-    return loss_info
 
 
 
@@ -260,22 +257,23 @@ def adv_eval_epoch(model, discriminators, iterator, criterion, device, args):
     # deactivate gradient reversal layer
     for discriminator in discriminators:
         discriminator.GR = False
-    
+
     eval_loss_val = 0.0
     with torch.no_grad():
         for batch in iterator:
             # move batch to proper device
             batch = move(batch, device)
             _, hs = model(**batch)
-            
+
             # get protected labels
             protected_group_labels = torch.argmax(batch['protected_group_labels'], dim=-1)
             labels = batch['labels']
-            for i, discriminator in enumerate(discriminators):
-                if args.by_class:
-                    adv_predictions, _ = discriminator(hs, labels=labels)
-                else:
-                    adv_predictions, _ = discriminator(hs)
+            for discriminator in discriminators:
+                adv_predictions, _ = (
+                    discriminator(hs, labels=labels)
+                    if args.by_class
+                    else discriminator(hs)
+                )
                 eval_loss = criterion(adv_predictions, protected_group_labels)
                 eval_loss_val += eval_loss.item()
 

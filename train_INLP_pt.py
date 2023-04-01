@@ -136,7 +136,7 @@ def get_projection_matrix(num_clfs, X_train, A_train, X_dev, A_dev, Y_train_task
     else:
         A_clf = LinearSVC
         params = {'penalty': 'l2', 'C': 0.01, 'fit_intercept': True, 'class_weight': None, "dual": False}
-        
+
     P,rowspace_projections, Ws = debias.get_debiasing_projection(
         classifier_class=A_clf, 
         cls_params=params, 
@@ -152,7 +152,7 @@ def get_projection_matrix(num_clfs, X_train, A_train, X_dev, A_dev, Y_train_task
         Y_dev_main=Y_dev_task, 
         by_class = True,
     )
-    print("time: {}".format(time.time() - start))
+    print(f"time: {time.time() - start}")
     return P,rowspace_projections, Ws
 
 class MLPModel(nn.Module):
@@ -170,8 +170,7 @@ class MLPModel(nn.Module):
     ):
         hs = self.encoder(input_ids)
         hs = self.activation(hs)
-        out = self.classifier(hs)
-        return out
+        return self.classifier(hs)
 
 def move(batch: dict, device: torch.device) -> dict:
     for (key, val) in batch.items():
@@ -209,7 +208,7 @@ def main():
     # If passed along, set the training seed now.
     if args.seed is not None:
         set_seed(args.seed)
-    
+
     # Make one log on every process with the configuration for debugging.
     logging.basicConfig(
         format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
@@ -222,26 +221,26 @@ def main():
     )
 
     args.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    
+
     logger.info(f"parser args : {vars(args)}")
-    
+
     # load data (test with biasbios data first)
     raw_dataset, dataset_info = load_raw_pq_data(args)
     raw_train, raw_val, raw_test = raw_dataset['train'], raw_dataset['val'], raw_dataset['test']
-    
+
     # load bert CLS representation
     x_train, x_val, x_test = load_text_reps(args)
-    
+
     assert len(x_train) == len(raw_train)
     assert len(x_val) == len(raw_val)
     assert len(x_test) == len(raw_test)
-    
+
     # get Y labels
     y_train, y_val, y_test = get_Y_labels(raw_train, raw_val, raw_test, dataset_info, args)
     y2i = dataset_info['label_to_id']
     i2y = {v:k for k, v in dataset_info['label_to_id'].items()}
     args.num_labels = len(y2i)
-    
+
     # get A labels
     a_train, a_val, a_test = get_A_labels(raw_train, raw_val, raw_test, dataset_info, args)
     a2i = dataset_info['protected_group_to_id']
@@ -252,7 +251,7 @@ def main():
     # set seed
     random.seed(args.seed)
     np.random.seed(args.seed)
-    
+
     # get metrics
     metrics = FairClassificationMetrics()
 
@@ -269,16 +268,16 @@ def main():
         dim = input_dim,
         args = args,
     )
-    
+
     # get the transformed data and pack it
     transformed_x_train = (P.dot(x_train.T)).T
     transformed_x_val = (P.dot(x_test.T)).T
     transformed_x_test = (P.dot(x_test.T)).T
-    
+
     train_dataset = TensorDataset(X=transformed_x_train, Y=y_train, A=a_train)
     val_dataset = TensorDataset(X=transformed_x_val, Y=y_val, A=a_val)
     test_dataset = TensorDataset(X=transformed_x_test, Y=y_test, A=a_test)
-    
+
     train_dataloader = DataLoader(
         train_dataset, 
         shuffle=True,
@@ -294,25 +293,33 @@ def main():
         shuffle=False,
         batch_size=args.per_device_eval_batch_size,
     )
-    
+
     # get MLP model and device
     model = MLPModel(input_size=transformed_x_train.shape[1], num_labels=len(y2i))
     model = model.to(args.device)
-    
+
     # Optimizer
     no_decay = ["bias", "LayerNorm.weight"]
     optimizer_grouped_parameters = [
         {
-            "params": [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)],
+            "params": [
+                p
+                for n, p in model.named_parameters()
+                if all(nd not in n for nd in no_decay)
+            ],
             "weight_decay": args.weight_decay,
         },
         {
-            "params": [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)],
+            "params": [
+                p
+                for n, p in model.named_parameters()
+                if any(nd in n for nd in no_decay)
+            ],
             "weight_decay": 0.0,
         },
     ]
     optimizer = AdamW(optimizer_grouped_parameters, lr=args.learning_rate)
-    
+
     # Scheduler and math around the number of training steps.
     num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
     if args.max_train_steps is None:
@@ -326,7 +333,7 @@ def main():
         num_warmup_steps=args.num_warmup_steps,
         num_training_steps=args.max_train_steps,
     )
-    
+
     # Train!
     total_batch_size = args.per_device_train_batch_size * args.gradient_accumulation_steps
 
@@ -340,12 +347,12 @@ def main():
     # Only show the progress bar once on each machine.
     progress_bar = tqdm(range(args.max_train_steps))
     completed_steps = 0
-   
+
     # eval_before_train
     if args.eval_before_train:
         eval_metrics, _ = eval_model(model, test_dataloader, metrics, args)
         logger.info(f"Eval before train: {eval_metrics}")
-    
+
     criterion = torch.nn.CrossEntropyLoss()
     for epoch in range(args.num_train_epochs):
         for step, batch in enumerate(train_dataloader):
@@ -363,7 +370,7 @@ def main():
                 optimizer.zero_grad()
                 progress_bar.update(1)
                 completed_steps += 1
-            
+
             if completed_steps >= args.max_train_steps:
                 break
 

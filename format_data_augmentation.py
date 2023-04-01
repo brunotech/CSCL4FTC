@@ -28,8 +28,7 @@ def parse_args():
         choices=["train", "val", "test"],
         help="datasets",
     )
-    args = parser.parse_args()
-    return args
+    return parser.parse_args()
 
 def load_raw_data(args):
     if args.dataset == 'biasbios':
@@ -61,15 +60,15 @@ def load_augmented_data(args):
         AUG_DATA_DIR = os.path.join('data/jigsaw-race/', 'augmented_text')
     else:
         raise NotImplementedError
-    
+
     augmented_text_fn = glob.glob(os.path.join(AUG_DATA_DIR,f'{args.dataset}_{args.split}_{args.aug_type}_*.pkl'))
 
     text_dict_data = {}
     for pickle_fn in augmented_text_fn:
         with open(pickle_fn, 'rb') as fr:
             text_dict_data_batch = pickle.load(fr)
-        text_dict_data.update(text_dict_data_batch)
-    
+        text_dict_data |= text_dict_data_batch
+
     return text_dict_data
 
 def save_to_output(augmented_data, args):

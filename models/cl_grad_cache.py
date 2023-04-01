@@ -135,13 +135,13 @@ class GradCache:
 
         # Separate representation
         z1, z2 = reps[:,0], reps[:,1]
-        
+
         # get batch size, labels and protect_group_labels
         batch_size = reps.size(0)
         labels = loss_kwargs['labels']
         protected_group_labels = loss_kwargs['protected_group_labels']
-        
-        
+
+
         # Gather all embeddings if using distributed training
         # Gather all embeddings if using distributed training
         if dist.is_initialized():
@@ -151,7 +151,7 @@ class GradCache:
             z2_list = [torch.zeros_like(z2) for _ in range(dist.get_world_size())]
             label_list = [torch.zeros_like(labels) for _ in range(dist.get_world_size())]
             protected_group_label_list = [torch.zeros_like(protected_group_labels) for _ in range(dist.get_world_size())]
-            
+
             # Allgather
             dist.all_gather(tensor_list=z1_list, tensor=z1.contiguous())
             dist.all_gather(tensor_list=z2_list, tensor=z2.contiguous())
@@ -162,7 +162,7 @@ class GradCache:
             # current process's corresponding embeddings with original tensors
             z1_list[dist.get_rank()] = z1
             z2_list[dist.get_rank()] = z2
-            
+
             # Get full batch embeddings: (bs x N, hidden)
             z1 = torch.cat(z1_list, 0)
             z2 = torch.cat(z2_list, 0)
@@ -184,29 +184,27 @@ class GradCache:
             protected_group_labels = protected_group_labels.argmax(1)
             assert labels.shape == (batch_size,)
             assert protected_group_labels.shape == (batch_size,)
-        
+
         features = torch.cat([z1.unsqueeze(1), z2.unsqueeze(1)], dim=1)
-        
+
         loss_1 = self.loss_1_criterion(
             features=features, 
             labels=labels,
         )
-        
+
         loss_2 = self.loss_2_criterion(
             features=features, 
             labels=labels, 
             protected_group_labels=protected_group_labels,
         )
-        
+
         loss = loss_1 + self.aux_loss_weight * loss_2
-        
-        loss_dict = {
+
+        return {
             "loss": loss,
             "loss_1": loss_1,
             "loss_2": loss_2,
         }
-        
-        return loss_dict
 
 
     def build_cache(self, reps: Tensor, **loss_kwargs):

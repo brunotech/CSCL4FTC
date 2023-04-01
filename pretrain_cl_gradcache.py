@@ -208,7 +208,7 @@ def eval_model(model, gradcache, eval_dataloader, accelerator):
         eval_loss_val = torch.tensor(0.0).to(accelerator.device)
         eval_loss_1_val = torch.tensor(0.0).to(accelerator.device)
         eval_loss_2_val = torch.tensor(0.0).to(accelerator.device)
-        for eval_step, batch in enumerate(eval_dataloader):
+        for batch in eval_dataloader:
             loss_dict = gradcache.step(batch)
             eval_loss_val += accelerator.gather(loss_dict['loss']).mean()
             eval_loss_1_val += accelerator.gather(loss_dict['loss_1']).mean()
@@ -220,15 +220,15 @@ def eval_model(model, gradcache, eval_dataloader, accelerator):
         eval_loss_val_scalar = eval_loss_val.item()
         eval_loss_1_val_scalar = eval_loss_1_val.item()
         eval_loss_2_val_scalar = eval_loss_2_val.item()
-        
+
         # compute loss for each step ang log
         log_info['eval_overall_loss'] = round(eval_loss_val_scalar / completed_eval_steps, 6)
         log_info['eval_loss_1'] = round(eval_loss_1_val_scalar / completed_eval_steps, 6)
         log_info['eval_loss_2'] = round(eval_loss_2_val_scalar / completed_eval_steps, 6)
-        
+
         # log it
         logger.info(f"Eval loss: {log_info}")
-        
+
         return eval_loss_val / completed_eval_steps
 
 def main():

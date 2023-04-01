@@ -84,7 +84,7 @@ class BertForSequenceClassification(BertPreTrainedModel):
             if self.config.problem_type is None:
                 if self.num_labels == 1:
                     self.config.problem_type = "regression"
-                elif self.num_labels > 1 and (labels.dtype == torch.long or labels.dtype == torch.int):
+                elif self.num_labels > 1 and labels.dtype in [torch.long, torch.int]:
                     self.config.problem_type = "single_label_classification"
                 else:
                     self.config.problem_type = "multi_label_classification"
@@ -141,7 +141,13 @@ class Pooler(nn.Module):
     def __init__(self, pooler_type):
         super().__init__()
         self.pooler_type = pooler_type
-        assert self.pooler_type in ["cls", "cls_before_pooler", "avg", "avg_top2", "avg_first_last"], "unrecognized pooling type %s" % self.pooler_type
+        assert self.pooler_type in [
+            "cls",
+            "cls_before_pooler",
+            "avg",
+            "avg_top2",
+            "avg_first_last",
+        ], f"unrecognized pooling type {self.pooler_type}"
 
     def forward(self, attention_mask, outputs):
         last_hidden = outputs.last_hidden_state
@@ -155,13 +161,17 @@ class Pooler(nn.Module):
         elif self.pooler_type == "avg_first_last":
             first_hidden = hidden_states[0]
             last_hidden = hidden_states[-1]
-            pooled_result = ((first_hidden + last_hidden) / 2.0 * attention_mask.unsqueeze(-1)).sum(1) / attention_mask.sum(-1).unsqueeze(-1)
-            return pooled_result
+            return (
+                (first_hidden + last_hidden) / 2.0 * attention_mask.unsqueeze(-1)
+            ).sum(1) / attention_mask.sum(-1).unsqueeze(-1)
         elif self.pooler_type == "avg_top2":
             second_last_hidden = hidden_states[-2]
             last_hidden = hidden_states[-1]
-            pooled_result = ((last_hidden + second_last_hidden) / 2.0 * attention_mask.unsqueeze(-1)).sum(1) / attention_mask.sum(-1).unsqueeze(-1)
-            return pooled_result
+            return (
+                (last_hidden + second_last_hidden)
+                / 2.0
+                * attention_mask.unsqueeze(-1)
+            ).sum(1) / attention_mask.sum(-1).unsqueeze(-1)
         else:
             raise NotImplementedError
         
@@ -225,14 +235,14 @@ class BertForContrastiveLearning(BertPreTrainedModel):
         # Number of sentences in one instance
         # 2: pair instance
         num_sent = input_ids.size(1)
-        
+
         # Flatten input for encoding
         input_ids = input_ids.view((-1, input_ids.size(-1))) # (bs * num_sent, len)
         if attention_mask is not None:
             attention_mask = attention_mask.view((-1, attention_mask.size(-1))) # (bs * num_sent len)
         if token_type_ids is not None:
             token_type_ids = token_type_ids.view((-1, token_type_ids.size(-1))) # (bs * num_sent, len)
-        
+
         # Get raw embeddings
         outputs = self.bert(
             input_ids,
@@ -242,10 +252,11 @@ class BertForContrastiveLearning(BertPreTrainedModel):
             head_mask=head_mask,
             inputs_embeds=inputs_embeds,
             output_attentions=output_attentions,
-            output_hidden_states=True if self.model_args.pooler_type in ['avg_top2', 'avg_first_last'] else False,
+            output_hidden_states=self.model_args.pooler_type
+            in ['avg_top2', 'avg_first_last'],
             return_dict=True,
         )
-        
+
         # Pooling
         pooler_output = self.pooler(attention_mask, outputs)
         pooler_output = pooler_output.view((batch_size, num_sent, pooler_output.size(-1))) # (bs, num_sent, hidden)
@@ -254,10 +265,10 @@ class BertForContrastiveLearning(BertPreTrainedModel):
         # (same as BERT's original implementation) over the representation.
         if self.pooler_type == "cls":
             pooler_output = self.mlp(pooler_output)
-        
+
         # Separate representation
         z1, z2 = pooler_output[:,0], pooler_output[:,1]
-        
+
         # Gather all embeddings if using distributed training
         if dist.is_initialized():
 
@@ -266,7 +277,7 @@ class BertForContrastiveLearning(BertPreTrainedModel):
             z2_list = [torch.zeros_like(z2) for _ in range(dist.get_world_size())]
             label_list = [torch.zeros_like(labels) for _ in range(dist.get_world_size())]
             protected_group_label_list = [torch.zeros_like(protected_group_labels) for _ in range(dist.get_world_size())]
-            
+
             # Allgather
             dist.all_gather(tensor_list=z1_list, tensor=z1.contiguous())
             dist.all_gather(tensor_list=z2_list, tensor=z2.contiguous())
@@ -277,7 +288,7 @@ class BertForContrastiveLearning(BertPreTrainedModel):
             # current process's corresponding embeddings with original tensors
             z1_list[dist.get_rank()] = z1
             z2_list[dist.get_rank()] = z2
-            
+
             # Get full batch embeddings: (bs x N, hidden)
             z1 = torch.cat(z1_list, 0)
             z2 = torch.cat(z2_list, 0)
@@ -299,29 +310,30 @@ class BertForContrastiveLearning(BertPreTrainedModel):
             protected_group_labels = protected_group_labels.argmax(1)
             assert labels.shape == (batch_size,)
             assert protected_group_labels.shape == (batch_size,)
-        
+
         features = torch.cat([z1.unsqueeze(1), z2.unsqueeze(1)], dim=1)
-        
+
         loss_1 = self.loss_1_criterion(
             features=features, 
             labels=labels,
         )
-        
+
         loss_2 = self.loss_2_criterion(
             features=features, 
             labels=labels, 
             protected_group_labels=protected_group_labels,
         )
-        
-        loss = loss_1 + self.aux_loss_weight * loss_2
-                
-        if not return_dict:
-            return (loss, loss_1, loss_2)
 
-        return CLModelOutput(
-            loss=loss,
-            loss_1=loss_1,
-            loss_2=loss_2,
+        loss = loss_1 + self.aux_loss_weight * loss_2
+
+        return (
+            CLModelOutput(
+                loss=loss,
+                loss_1=loss_1,
+                loss_2=loss_2,
+            )
+            if return_dict
+            else (loss, loss_1, loss_2)
         )
 
 class BertForCLGradCache(BertPreTrainedModel):
@@ -365,14 +377,14 @@ class BertForCLGradCache(BertPreTrainedModel):
         # Number of sentences in one instance
         # 2: pair instance
         num_sent = input_ids.size(1)
-        
+
         # Flatten input for encoding
         input_ids = input_ids.view((-1, input_ids.size(-1))) # (bs * num_sent, len)
         if attention_mask is not None:
             attention_mask = attention_mask.view((-1, attention_mask.size(-1))) # (bs * num_sent len)
         if token_type_ids is not None:
             token_type_ids = token_type_ids.view((-1, token_type_ids.size(-1))) # (bs * num_sent, len)
-        
+
         # Get raw embeddings
         outputs = self.bert(
             input_ids,
@@ -382,10 +394,11 @@ class BertForCLGradCache(BertPreTrainedModel):
             head_mask=head_mask,
             inputs_embeds=inputs_embeds,
             output_attentions=output_attentions,
-            output_hidden_states=True if self.model_args.pooler_type in ['avg_top2', 'avg_first_last'] else False,
+            output_hidden_states=self.model_args.pooler_type
+            in ['avg_top2', 'avg_first_last'],
             return_dict=True,
         )
-        
+
         # Pooling
         pooler_output = self.pooler(attention_mask, outputs)
         pooler_output = pooler_output.view((batch_size, num_sent, pooler_output.size(-1))) # (bs, num_sent, hidden)
@@ -394,7 +407,7 @@ class BertForCLGradCache(BertPreTrainedModel):
         # (same as BERT's original implementation) over the representation.
         if self.pooler_type == "cls":
             pooler_output = self.mlp(pooler_output)
-        
+
         return pooler_output
 
 class BertForOneStageCLGradCache(BertPreTrainedModel):
@@ -439,14 +452,14 @@ class BertForOneStageCLGradCache(BertPreTrainedModel):
         # Number of sentences in one instance
         # 2: pair instance
         num_sent = input_ids.size(1)
-        
+
         # Flatten input for encoding
         input_ids = input_ids.view((-1, input_ids.size(-1))) # (bs * num_sent, len)
         if attention_mask is not None:
             attention_mask = attention_mask.view((-1, attention_mask.size(-1))) # (bs * num_sent len)
         if token_type_ids is not None:
             token_type_ids = token_type_ids.view((-1, token_type_ids.size(-1))) # (bs * num_sent, len)
-        
+
         # Get raw embeddings
         outputs = self.bert(
             input_ids,
@@ -456,10 +469,11 @@ class BertForOneStageCLGradCache(BertPreTrainedModel):
             head_mask=head_mask,
             inputs_embeds=inputs_embeds,
             output_attentions=output_attentions,
-            output_hidden_states=True if self.model_args.pooler_type in ['avg_top2', 'avg_first_last'] else False,
+            output_hidden_states=self.model_args.pooler_type
+            in ['avg_top2', 'avg_first_last'],
             return_dict=True,
         )
-        
+
         # Pooling
         pooler_output = self.pooler(attention_mask, outputs)
         pooler_output = pooler_output.view((batch_size, num_sent, pooler_output.size(-1))) # (bs, num_sent, hidden)
@@ -468,8 +482,8 @@ class BertForOneStageCLGradCache(BertPreTrainedModel):
         # (same as BERT's original implementation) over the representation.
         if self.pooler_type == "cls":
             pooler_output = self.mlp(pooler_output)
-        
+
         # get logits for classifcation
         logits = self.classifier(pooler_output)
-        
+
         return pooler_output, logits

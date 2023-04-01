@@ -66,9 +66,7 @@ def parse_args():
         default=0,
         help="random seed",
     )
-    args = parser.parse_args()
-    # TODO: Sanity checks
-    return args
+    return parser.parse_args()
 
 def load_data(args):
     if args.dataset == 'biasbios':
@@ -116,10 +114,9 @@ def save_to_output(augmented_texts, args):
     if not os.path.exists(OUT_DIR):
         os.makedirs(OUT_DIR)
 
-    out_dict = {}
-    for idx, text in enumerate(augmented_texts):
-        out_dict[args.idx_start+idx] = text
-
+    out_dict = {
+        args.idx_start + idx: text for idx, text in enumerate(augmented_texts)
+    }
     out_fn = f'{args.dataset}_{args.split}_{args.aug_type}_{args.idx_start}_{args.idx_end}.pkl'
     out_fn = os.path.join(OUT_DIR, out_fn)
     print(f"saving augmented data to {out_fn}")
@@ -199,11 +196,7 @@ def EDA_augmentation(texts, args):
         line = line.lower()
 
         for char in line:
-            if char in 'qwertyuiopasdfghjklzxcvbnm ':
-                clean_line += char
-            else:
-                clean_line += ' '
-
+            clean_line += char if char in 'qwertyuiopasdfghjklzxcvbnm ' else ' '
         clean_line = re.sub(' +',' ',clean_line) #delete extra spaces
         if clean_line[0] == ' ':
             clean_line = clean_line[1:]
@@ -221,7 +214,7 @@ def EDA_augmentation(texts, args):
 
     def synonym_replacement(words, n):
         new_words = words.copy()
-        random_word_list = list(set([word for word in words if word not in stop_words]))
+        random_word_list = list({word for word in words if word not in stop_words})
         random.shuffle(random_word_list)
         num_replaced = 0
         for random_word in random_word_list:
@@ -270,7 +263,7 @@ def EDA_augmentation(texts, args):
                 new_words.append(word)
 
         #if you end up deleting all words, just return a random word
-        if len(new_words) == 0:
+        if not new_words:
             rand_int = random.randint(0, len(words)-1)
             return [words[rand_int]]
 
@@ -313,7 +306,7 @@ def EDA_augmentation(texts, args):
     def add_word(new_words):
         synonyms = []
         counter = 0
-        while len(synonyms) < 1:
+        while not synonyms:
             random_word = new_words[random.randint(0, len(new_words)-1)]
             synonyms = get_synonyms(random_word)
             counter += 1
@@ -328,12 +321,12 @@ def EDA_augmentation(texts, args):
     ########################################################################
 
     def eda(sentence, alpha_sr=0.1, alpha_ri=0.1, alpha_rs=0.1, p_rd=0.1, num_aug=9):
-        
+
         sentence = get_only_chars(sentence)
         words = sentence.split(' ')
         words = [word for word in words if word is not '']
         num_words = len(words)
-        
+
         augmented_sentences = []
         num_new_per_technique = int(num_aug/4)+1
 

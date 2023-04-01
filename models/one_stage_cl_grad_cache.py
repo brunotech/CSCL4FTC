@@ -144,13 +144,13 @@ class GradCache:
 
         # Separate logits
         logits1, logits2 = logits[:,0], logits[:,1]
-        
+
         # get batch size, labels and protect_group_labels
         batch_size = reps.size(0)
         labels = loss_kwargs['labels']
         protected_group_labels = loss_kwargs['protected_group_labels']
-        
-        
+
+
         # Gather all embeddings if using distributed training
         # Gather all embeddings if using distributed training
         if dist.is_initialized():
@@ -178,7 +178,7 @@ class GradCache:
             logits1_list[dist.get_rank()] = logits1
             logits2_list[dist.get_rank()] = logits2
 
-            
+
             # Get full batch embeddings: (bs x N, hidden)
             z1 = torch.cat(z1_list, 0)
             z2 = torch.cat(z2_list, 0)
@@ -204,34 +204,32 @@ class GradCache:
             assert logits1.shape == logits2.shape == (batch_size, self.num_classes)
             assert labels.shape == (batch_size,)
             assert protected_group_labels.shape == (batch_size,)
-        
+
         features = torch.cat([z1.unsqueeze(1), z2.unsqueeze(1)], dim=1)
         # sup_logits = torch.cat([logits1.unsqueeze(1), logits2.unsqueeze(1)], dim=1)
-        
+
         CE_loss = self.CE_criterion(logits1, labels)
-        
+
         loss_1 = self.loss_1_criterion(
             features=features, 
             labels=labels,
         )
-        
+
         loss_2 = self.loss_2_criterion(
             features=features, 
             labels=labels, 
             protected_group_labels=protected_group_labels,
         )
-        
+
         loss = (1-self.scl_ratio) * CE_loss + self.scl_ratio * loss_1 \
-            + self.aux_loss_weight * loss_2
-        
-        loss_dict = {
+                + self.aux_loss_weight * loss_2
+
+        return {
             "loss": loss,
             "CE_loss": CE_loss,
             "loss_1": loss_1,
             "loss_2": loss_2,
         }
-        
-        return loss_dict
 
 
     def build_cache(self, reps: Tensor, logits: Tensor, **loss_kwargs):
@@ -279,20 +277,18 @@ class GradCache:
         
         if no_sync_except_last:
             sync_contexts = [self.model.no_sync for _ in range(len(model_inputs) - 1)] + [nullcontext]
-        else:
-            sync_contexts = [nullcontext for _ in range(len(model_inputs))]
-            
-        if no_sync_except_last:
             sync_contexts = [self.model.no_sync for _ in range(len(model_inputs) - 1)] + [nullcontext]
         else:
             sync_contexts = [nullcontext for _ in range(len(model_inputs))]
-            
+
+            sync_contexts = [nullcontext for _ in range(len(model_inputs))]
+
         for x, state, gradient, logits_gradients, sync_context in zip(model_inputs, random_states, cached_gradients, cached_logits_gradients, sync_contexts):
             with sync_context():
                 with state:
                     z, l = self.model(**x)
                 surrogate = torch.dot(z.flatten(), gradient.flatten()) \
-                        + torch.dot(l.flatten(), logits_gradients.flatten())
+                            + torch.dot(l.flatten(), logits_gradients.flatten())
                 surrogate.backward()
         
     

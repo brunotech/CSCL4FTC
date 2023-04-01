@@ -217,12 +217,12 @@ def parse_args():
 
 def main():
     args = parse_args()
-    
+
     # in the baseline script, 
     # we avoid parallel training using accelerator
     # and use single device + gradient accumulation step for training 
     args.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    
+
     # If passed along, set the training seed now.
     if args.seed is not None:
         set_seed(args.seed)
@@ -231,7 +231,7 @@ def main():
         os.makedirs(args.output_dir, exist_ok=True)
         # tmp path used for saving discriminators
         os.makedirs(os.path.join(args.output_dir, "tmp"), exist_ok=True)
-    
+
     logging.basicConfig(
         format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
         datefmt="%m/%d/%Y %H:%M:%S",
@@ -244,48 +244,48 @@ def main():
     logger.setLevel(logging.INFO)
     datasets.utils.logging.set_verbosity_warning()
     transformers.utils.logging.set_verbosity_info()
-    
+
     # load datasets and tokenizer, and preprocess datasets
     if args.dataset == 'biasbios':
         from dataset_loading import load_biasbios_for_ce
-        
+
         # load tokenizer and preprocessing the datasets    
         tokenizer = AutoTokenizer.from_pretrained(
             args.model_name_or_path, 
             use_fast=not args.use_slow_tokenizer
         )
         processed_dataset, dataset_info  = load_biasbios_for_ce(tokenizer, args, accelerator=None)
-        
+
         id_to_label = dataset_info["id_to_label"]
         label_to_id = dataset_info["label_to_id"]
         num_labels = dataset_info["num_labels"]
-        
+
         train_dataset = processed_dataset["train"]
         val_dataset = processed_dataset["val"]
         test_dataset = processed_dataset["test"]
-        
+
     elif args.dataset == 'jigsaw-race':
         from dataset_loading import load_jigsaw_race_for_ce
-        
+
         # load tokenizer and preprocessing the datasets    
         tokenizer = AutoTokenizer.from_pretrained(
             args.model_name_or_path, 
             use_fast=not args.use_slow_tokenizer
         )
-        
+
         processed_dataset, dataset_info  = load_jigsaw_race_for_ce(tokenizer, args, accelerator=None)
-        
+
         id_to_label = dataset_info["id_to_label"]
         label_to_id = dataset_info["label_to_id"]
         num_labels = dataset_info["num_labels"]
-        
+
         train_dataset = processed_dataset["train"]
         val_dataset = processed_dataset["val"]
         test_dataset = processed_dataset["test"]
 
     else:
         raise NotImplementedError
-    
+
     # Load pretrained model and config based on datasets
     config = AutoConfig.from_pretrained(
         args.model_name_or_path, 
@@ -315,7 +315,7 @@ def main():
 
     diff_loss = DiffLoss()
     args.diff_loss = diff_loss
-    
+
     # DataLoaders creation:
     if args.pad_to_max_length:
         # If padding was already done ot max length, we use the default data collator that will just convert everything
@@ -356,11 +356,19 @@ def main():
     no_decay = ["bias", "LayerNorm.weight"]
     optimizer_grouped_parameters = [
         {
-            "params": [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)],
+            "params": [
+                p
+                for n, p in model.named_parameters()
+                if all(nd not in n for nd in no_decay)
+            ],
             "weight_decay": args.weight_decay,
         },
         {
-            "params": [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)],
+            "params": [
+                p
+                for n, p in model.named_parameters()
+                if any(nd in n for nd in no_decay)
+            ],
             "weight_decay": 0.0,
         },
     ]
@@ -381,7 +389,7 @@ def main():
         num_warmup_steps=args.num_warmup_steps,
         num_training_steps=args.max_train_steps,
     )
-    
+
     # load metric
     metrics = FairClassificationMetrics()
 
@@ -415,7 +423,7 @@ def main():
 
     criterion = torch.nn.CrossEntropyLoss()
     for epoch in range(args.num_train_epochs):
-        
+
         # train and eval adv discriminators
         adv_train_eval(
             model=model, 

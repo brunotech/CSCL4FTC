@@ -175,11 +175,11 @@ def compute_validation_loss(model, eval_dataloader, accelerator):
     with torch.no_grad():
         completed_eval_steps = 0
         eval_loss_val = torch.tensor(0.0).to(accelerator.device)
-        for _, batch in enumerate(eval_dataloader):
+        for batch in eval_dataloader:
             outputs = model(**batch)
             eval_loss_val += accelerator.gather(outputs.loss).mean()
             completed_eval_steps += 1
-    
+
         return eval_loss_val / completed_eval_steps
 
 def main():

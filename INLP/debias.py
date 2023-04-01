@@ -15,14 +15,8 @@ def get_rowspace_projection(W: np.ndarray) -> np.ndarray:
     :return: the projection matrix over the rowspace
     """
 
-    if np.allclose(W, 0):
-        w_basis = np.zeros_like(W.T)
-    else:
-        w_basis = scipy.linalg.orth(W.T) # orthogonal basis
-
-    P_W = w_basis.dot(w_basis.T) # orthogonal projection on W's rowspace
-
-    return P_W
+    w_basis = np.zeros_like(W.T) if np.allclose(W, 0) else scipy.linalg.orth(W.T)
+    return w_basis.dot(w_basis.T)
 
 def get_projection_to_intersection_of_nullspaces(rowspace_projection_matrices: List[np.ndarray], input_dim: int):
     """
@@ -36,9 +30,7 @@ def get_projection_to_intersection_of_nullspaces(rowspace_projection_matrices: L
 
     I = np.eye(input_dim)
     Q = np.sum(rowspace_projection_matrices, axis = 0)
-    P = I - get_rowspace_projection(Q)
-
-    return P
+    return I - get_rowspace_projection(Q)
 
 def debias_by_specific_directions(directions: List[np.ndarray], input_dim: int):
     """
@@ -53,9 +45,9 @@ def debias_by_specific_directions(directions: List[np.ndarray], input_dim: int):
         P_v = get_rowspace_projection(v)
         rowspace_projections.append(P_v)
 
-    P = get_projection_to_intersection_of_nullspaces(rowspace_projections, input_dim)
-
-    return P
+    return get_projection_to_intersection_of_nullspaces(
+        rowspace_projections, input_dim
+    )
 
 
 def get_debiasing_projection(classifier_class, cls_params: Dict, num_classifiers: int, input_dim: int,
@@ -113,7 +105,7 @@ def get_debiasing_projection(classifier_class, cls_params: Dict, num_classifiers
             relevant_idx_dev = np.ones(X_dev_cp.shape[0], dtype=bool)
 
         acc = clf.train_network((X_train_cp * dropout_mask)[relevant_idx_train], Y_train[relevant_idx_train], X_dev_cp[relevant_idx_dev], Y_dev[relevant_idx_dev])
-        pbar.set_description("iteration: {}, accuracy: {}".format(i, acc))
+        pbar.set_description(f"iteration: {i}, accuracy: {acc}")
         if acc < min_accuracy: continue
 
         W = clf.get_weights()

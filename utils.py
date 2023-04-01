@@ -35,8 +35,7 @@ def rms_diff(tpr_diff):
     return np.sqrt(np.mean(tpr_diff**2))
 
 def _get_unique_labels(labels):
-    unique_labels = list(np.unique(labels))
-    return unique_labels
+    return list(np.unique(labels))
 
 def div0( a, b, fill=0.0):
     """ a / b, divide by 0 -> `fill`
@@ -48,9 +47,8 @@ def div0( a, b, fill=0.0):
     if np.isscalar( c ):
         return c if np.isfinite( c ) \
             else fill
-    else:
-        c[ ~ np.isfinite( c )] = fill
-        return c
+    c[ ~ np.isfinite( c )] = fill
+    return c
 
 def compute_deo_for_multi_label_loop(predictions, references, sensitive_attributes):
     '''compute deo based on loops
@@ -257,14 +255,12 @@ class FairClassificationMetrics(datasets.Metric):
         except pa.ArrowInvalid as e:
             match = re.match(r"Column 1 named references expected length (\d+) but got length (\d+)", str(e))
             if match is not None:
-                error_msg = (
-                    f"Mismatch in the number of predictions ({match.group(1)}), references ({match.group(2)}), and sensitive_attributes ({match.group(3)}"
-                )
+                error_msg = f"Mismatch in the number of predictions ({match[1]}), references ({match[2]}), and sensitive_attributes ({match[3]}"
             else:
                 # lists - summarize long lists similarly to NumPy
                 # arrays/tensors - let the frameworks control formatting
                 def summarize_if_long_list(obj):
-                    if not type(obj) == list or len(obj) <= 6:
+                    if type(obj) != list or len(obj) <= 6:
                         return f"{obj}"
 
                     def format_chunk(chunk):

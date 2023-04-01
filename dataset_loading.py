@@ -485,9 +485,8 @@ class TensorDataset(Dataset):
         return len(self.X)
 
     def __getitem__(self, idx):
-        data_dict = {
-            "input_ids": self.X[idx], 
-            "labels": self.Y[idx], 
+        return {
+            "input_ids": self.X[idx],
+            "labels": self.Y[idx],
             "protected_group_labels": self.A[idx],
         }
-        return data_dict
